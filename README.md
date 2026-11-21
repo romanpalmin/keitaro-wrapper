@@ -22,11 +22,21 @@ Swagger: http://127.0.0.1:8000/docs
 
 ## Миграции
 
+URL БД берётся из `.env` (`DATABASE_URL`), не из `alembic.ini`.
+
 ```bash
-alembic upgrade head
+alembic upgrade head      # накатить схему
+alembic current           # какая версия сейчас
+alembic revision --autogenerate -m "…"  # новая миграция (сравнение моделей с БД)
 ```
 
-_(раздел дополняется по мере появления моделей)_
+При старте сервиса (`uvicorn`):
+
+- `APP_ENV=dev` (по умолчанию) — `lifespan` вызывает `init_db()`
+  (`Base.metadata.create_all`): недостающие таблицы создаются автоматически;
+  изменение существующей схемы — всё равно через миграции.
+- `APP_ENV=production` — `create_all` **не** вызывается; схема только через
+  `alembic upgrade head` (иначе downgrade в БД «молча» вернётся при рестарте).
 
 ## Тесты
 

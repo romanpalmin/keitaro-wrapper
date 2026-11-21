@@ -23,6 +23,11 @@ build/
 .coverage
 htmlcov/
 
+# Локальная БД (sqlite)
+*.db
+*.db-journal
+*.sqlite3
+
 # IDE
 .idea/
 .vscode/

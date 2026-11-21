@@ -20,6 +20,12 @@ async def get_session():
 
 
 async def init_db() -> None:
-    """Создаёт таблицы из моделей (development; в проде — Alembic migrate)."""
+    """Создаёт таблицы из моделей (development; в проде — Alembic migrate).
+
+    Импорт моделей здесь, а не в main: metadata заполняется только при
+    импорте модулей моделей — без этого create_all молча создаёт пустую БД.
+    """
+    import app.models  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

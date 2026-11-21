@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./keitaro_wrapper.db"
     app_host: str = "127.0.0.1"
     app_port: int = 8000
+    # dev → lifespan может create_all; production → только alembic upgrade head
+    app_env: str = "dev"
 
 
 settings = Settings()

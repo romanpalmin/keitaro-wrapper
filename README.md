@@ -1,24 +1,49 @@
 # keitaro-wrapper
 
-Тестовое задание: веб-обёртка над API рекламного трекера — создаватор кампаний и редактор офферов.
+Тестовое задание: веб-обёртка над API рекламного трекера — **создаватор** кампаний
+и **редактор** офферов существующей кампании.
 
-**Стек:** Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic, pytest.
+**Стек:** Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic, pytest, ruff.
+Фронт — статический HTML (без сборщика), как разрешено в ТЗ.
 
 ## Запуск
+
+**Команды выполняй из корня репозитория** (где лежит `pyproject.toml`):
+от него зависят относительный `DATABASE_URL` в `.env` (`./keitaro_wrapper.db`)
+и `prepend_sys_path = .` в `alembic.ini`. Сам `.env` приложение находит
+через путь от `app/config.py` — не «где стоишь», а «где лежит проект».
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-cp .env.example .env   # заполнить KEITARO_API_KEY и другие значения
+cp .env.example .env   # заполнить KEITARO_BASE_URL и KEITARO_API_KEY
+
+# схема БД (см. раздел «Миграции»)
+alembic upgrade head
 
 uvicorn app.main:app --reload
 ```
 
-Сервис: http://127.0.0.1:8000  
-Health: http://127.0.0.1:8000/health  
-Swagger: http://127.0.0.1:8000/docs
+| URL | Что |
+|-----|-----|
+| http://127.0.0.1:8000/ | HTML-форма создаватора |
+| http://127.0.0.1:8000/edit | HTML-редактор офферов |
+| http://127.0.0.1:8000/health | healthcheck |
+| http://127.0.0.1:8000/docs | Swagger |
+
+Ключ и хост трекера — только в локальном `.env` (в git не входят).
+В `.env.example` — плейсхолдер `tracker.example.com`.
+
+### Probe (живой API)
+
+```bash
+.venv/bin/python scripts/probe_api.py
+```
+
+Проверяет, отвечает ли трекер на нужные разделы. Ключ в логи не пишется.
+Сейчас админка трекера может отдавать 403 на nginx — probe покажет это явно.
 
 ## Миграции
 
@@ -36,13 +61,63 @@ alembic revision --autogenerate -m "…"  # новая миграция (сра�
   (`Base.metadata.create_all`): недостающие таблицы создаются автоматически;
   изменение существующей схемы — всё равно через миграции.
 - `APP_ENV=production` — `create_all` **не** вызывается; схема только через
-  `alembic upgrade head` (иначе downgrade в БД «молча» вернётся при рестарте).
+  `alembic upgrade head`.
 
-## Тесты
+**Если таблицы уже созданы через `create_all`, а `alembic_version` пуст**
+(классический «dev-файл без истории»):
 
 ```bash
-pytest
+alembic stamp head   # пометить head, не пересоздавая таблицы
+# дальше обычные upgrade при следующих миграциях
 ```
+
+Свежая чистая БД: сразу `alembic upgrade head` (или dev-старт + create_all,
+затем `alembic stamp head`, чтобы истории не расходились).
+
+## Примеры API
+
+Создать кампанию (2 потока: geo → Google, default → оффер):
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/campaigns \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"demo","geo_code":"MX","offer_id":42}'
+```
+
+Справочник офферов (автокомплит редактора):
+
+```bash
+curl -s http://127.0.0.1:8000/api/offers
+```
+
+Список офферов потока кампании `42` (цифры: active_count, share_sum):
+
+```bash
+curl -s http://127.0.0.1:8000/api/campaigns/42/offers
+```
+
+Добавить / удалить оффер (share пересчитываются, сумма активных = 100):
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/campaigns/42/offers \
+  -H 'Content-Type: application/json' \
+  -d '{"offer_id":7}'
+
+curl -s -X DELETE http://127.0.0.1:8000/api/campaigns/42/offers/7
+```
+
+Коды: `201` — создание/добавление; `404` — нет кампании/оффера; `409` — оффер уже в потоке;
+`502`/`503`/`504` — ошибка/нет ключа/таймаут трекера (тело — `detail` + `[kind]`).
+
+## Тесты и линт
+
+```bash
+pytest -q     # 56 passed
+ruff check .  # чисто
+```
+
+Тесты изолированы: свой SQLite во временном каталоге, HTTP трекера — через
+`httpx.MockTransport` (без живого API и без ключа).
 
 ## Редактор офферов: отличия от референса и почему упрощённо
 
@@ -70,10 +145,51 @@ pytest
 
 **Существующие disabled-офферы** в массиве `offers` не выбрасываем: уходят в PUT с `state=disabled, share=0` и вне пересчёта активных (сумма 100 — только по активным).
 
-**При отправке работы** это упрощение стоит упомянуть в сообщении сабмита (не только здесь в README) — чтобы работодатель заранее видел разрыв с UX видео, а не находил его при сравнении.
+**При отправке работы** это упрощение стоит упомянуть в сообщении сабмита (не только здесь в README).
 
 Страница: `/edit`. API: `GET/POST /api/campaigns/{id}/offers`, `DELETE /api/campaigns/{id}/offers/{offer_id}`.
 
+## Как использовал ИИ
+
+> Использовал Claude Code как основного coding-агента: архитектура слоёв
+> (FastAPI → сервисы → SQLAlchemy/Alembic), HTTP-клиент к Admin API, HTML-формы,
+> pytest-изоляция (MockTransport, tmp SQLite) и ruff. Отдельной моделью-ревьюером
+> гонял диффы каждого блока до вердикта «ГОТОВ» — на вход шли только diff и
+> условия ТЗ, не «всё подряд». Агенты разрешены ТЗ; код и каждую строку разбирал
+> сам, коммиты — после своего «ок». Live probe к трекеру запускаю скриптом
+> `scripts/probe_api.py`, ключи только в `.env`.
+
+## Что не успел / известные ограничения (честно)
+
+- **Живой probe и реальный прогон** против трекера: админка на время сдачи
+  отдавала 403 на nginx — контракт потоков (action/filter) сверен по докам OpenAPI,
+  не по живому ответу. Скрипт probe готов, когда доступ вернётся.
+- **Публичный GitHub** — репозиторий будет опубликован при сдаче.
+- **FETCH/PUSH-буфер и BRING BACK** из видео — сознательно не делал (см. таблицу выше).
+- **Stats/Trends/VIEW IN KT** — вне ТЗ.
+- **Таймаут клиента** — константа 15 с в коде, не вынес в env.
+- **PostgreSQL** — в README/`.env.example` описан, в тестах гоняется только
+  SQLite (aiosqlite); прод-URL не проверялся.
+- **Авторизация собственного API** — нет (локальная обёртка, не публичный SaaS).
+- Повторный одинаковый `name` у создаватора → alias занят → ответ трекера 400
+  (без авто-переименования); сбой после POST кампании ищет её по alias и
+  пытается откатить DELETE — при полном отказе поиска в трекере может остаться
+  «полукампания» без записи в локальной БД.
+
 ## Структура
 
-См. `docs/study-guide.md` (приватное учебное руководство, в публичный репозиторий не входит).
+```
+app/
+  main.py            # FastAPI + lifespan
+  config.py          # .env (путь от __file__)
+  db.py              # async engine/session, init_db
+  api/               # routes + pydantic-схемы
+  services/          # keitaro_client, campaign_creator, campaign_editor
+  models/            # CampaignRecord (журнал)
+  static/            # create_campaign.html, edit_offers.html
+migrations/          # Alembic
+tests/               # pytest
+scripts/probe_api.py # живой probe
+```
+
+`docs/` (учебные заметки, журнал) — в `.gitignore`, в публичный репозиторий не входит.

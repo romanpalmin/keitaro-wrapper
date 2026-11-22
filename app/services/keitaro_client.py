@@ -1,7 +1,8 @@
 """HTTP-клиент Keitaro Admin API.
 
-Говорит с трекером: список кампаний/офферов/справочников, потоки кампании.
-Ошибки API прячем за KeitaroApiError — наружу не сырые исключения httpx.
+Говорит с трекером: список кампаний/офферов/справочников, потоки кампании,
+создание и удаление кампаний/потоков. Ошибки API прячем за KeitaroApiError —
+наружу не сырые исключения httpx.
 """
 
 from __future__ import annotations
@@ -15,18 +16,23 @@ from app.config import settings
 # Префикс Admin API относительно хоста трекера (см. docs/api-notes.md)
 API_PREFIX = "/admin_api/v1"
 
+# kind ошибки — для маппинга в HTTP-коды нашего API (timeout → 504, остальное → 502)
+ERROR_KINDS = ("timeout", "network", "http", "contract", "parse", "config")
+
 
 class KeitaroApiError(Exception):
-    """Любая проблема обращения к Keitaro: нет ключа, сеть, таймаут, не-2xx."""
+    """Любая проблема обращения к Keitaro: нет ключа, сеть, таймаут, не-2кс."""
 
     def __init__(
         self,
         message: str,
         *,
+        kind: str = "http",
         status_code: int | None = None,
         body: str | None = None,
     ) -> None:
         super().__init__(message)
+        self.kind = kind
         self.status_code = status_code
         self.body = body
 
@@ -70,7 +76,8 @@ class KeitaroClient:
         """Лениво создать httpx.AsyncClient; без ключа — сразу ошибка."""
         if not self._api_key:
             raise KeitaroApiError(
-                "KEITARO_API_KEY пуст — заполни .env (ключ из админки трекера)."
+                "KEITARO_API_KEY пуст — заполни .env (ключ из админки трекера).",
+                kind="config",
             )
         if self._client is None:
             self._client = httpx.AsyncClient(
@@ -94,13 +101,20 @@ class KeitaroClient:
         try:
             response = await client.request(method, path, params=params, json=json)
         except httpx.TimeoutException as exc:
-            raise KeitaroApiError(f"Таймаут Keitaro: {method} {path}") from exc
+            raise KeitaroApiError(
+                f"Таймаут Keitaro: {method} {path}",
+                kind="timeout",
+            ) from exc
         except httpx.HTTPError as exc:
-            raise KeitaroApiError(f"Сетевая ошибка Keitaro: {exc}") from exc
+            raise KeitaroApiError(
+                f"Сетевая ошибка Keitaro: {exc}",
+                kind="network",
+            ) from exc
 
         if response.status_code >= 400:
             raise KeitaroApiError(
                 f"Keitaro {method} {path} → HTTP {response.status_code}",
+                kind="http",
                 status_code=response.status_code,
                 body=response.text[:500],
             )
@@ -113,6 +127,7 @@ class KeitaroClient:
             # 2xx, но тело не JSON (HTML-страница, обрезанный ответ) — не пускаем наружу
             raise KeitaroApiError(
                 f"Keitaro {method} {path}: ожидается JSON, получен не-JSON",
+                kind="parse",
                 status_code=response.status_code,
                 body=response.text[:500],
             ) from exc
@@ -166,12 +181,27 @@ class KeitaroClient:
         data = await self._request("GET", "/stream_filters")
         return self._as_list(data)
 
+    async def create_campaign(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Создать кампанию (POST /campaigns). Обязательно name + alias."""
+        data = await self._request("POST", "/campaigns", json=payload)
+        return self._as_dict(data)
+
+    async def delete_campaign(self, campaign_id: int) -> Any:
+        """Удалить/архивировать кампанию (DELETE /campaigns/{id}) — для отката."""
+        return await self._request("DELETE", f"/campaigns/{campaign_id}")
+
+    async def create_stream(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Создать поток (POST /streams): campaign_id, schema, type, name, action_type."""
+        data = await self._request("POST", "/streams", json=payload)
+        return self._as_dict(data)
+
     @staticmethod
     def _as_list(data: Any) -> list[dict[str, Any]]:
         """Список из ответа; не список — ошибка контракта API."""
         if not isinstance(data, list):
             raise KeitaroApiError(
                 "Неожиданный формат ответа: ожидался JSON-массив",
+                kind="contract",
                 body=str(data)[:200],
             )
         return data
@@ -181,6 +211,7 @@ class KeitaroClient:
         if not isinstance(data, dict):
             raise KeitaroApiError(
                 "Неожиданный формат ответа: ожидался JSON-объект",
+                kind="contract",
                 body=str(data)[:200],
             )
         return data

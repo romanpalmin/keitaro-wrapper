@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import DateTime, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -18,6 +18,14 @@ class CampaignRecord(Base):
     """Одна созданная (или попытка создания) кампания в Keitaro."""
 
     __tablename__ = "campaign_records"
+    # Две записи не могут ссылаться на одну кампанию трекера.
+    # NULL (создание не дошло до id) не считается конфликтом в SQLite/PG.
+    __table_args__ = (
+        UniqueConstraint(
+            "keitaro_campaign_id",
+            name="uq_campaign_records_keitaro_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # id кампании в Keitaro; None — создание не дошло до конца
@@ -26,7 +34,7 @@ class CampaignRecord(Base):
     alias: Mapped[str | None] = mapped_column(String(255), nullable=True)
     geo_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
     offer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # created | partial | failed — для идемпотентности при частичном отказе (см. план блока 3)
+    # created | partial | failed — идемпотентность/частичный отказ (блок 3)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="created", server_default="created"
     )

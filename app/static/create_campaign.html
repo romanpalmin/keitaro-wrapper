@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Создаватор кампаний — Keitaro wrapper</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 420px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.45;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+    p.hint { opacity: 0.75; font-size: 0.9rem; margin-top: 0; }
+    form { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.25rem; }
+    label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; }
+    input {
+      padding: 0.5rem 0.6rem;
+      border: 1px solid #8884;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    button {
+      padding: 0.6rem;
+      border: 0;
+      border-radius: 6px;
+      background: #2563eb;
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    #result {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      font-size: 0.9rem;
+      display: none;
+    }
+    #result.ok { display: block; background: #14532d22; border: 1px solid #16a34a66; }
+    #result.err { display: block; background: #7f1d1d22; border: 1px solid #dc262666; }
+    #result.partial { display: block; background: #78350f22; border: 1px solid #d9770666; }
+    nav a { font-size: 0.85rem; opacity: 0.7; }
+  </style>
+</head>
+<body>
+  <nav><a href="/docs">Swagger</a> · <a href="/health">health</a></nav>
+  <h1>Создаватор кампаний</h1>
+  <p class="hint">Название + geo-код + ID оффера → кампания с двумя потоками в трекере.</p>
+
+  <form id="create-form">
+    <label>
+      Название кампании
+      <input name="name" required maxlength="200" placeholder="demo_offer" autocomplete="off" />
+    </label>
+    <label>
+      Geo-код страны
+      <input name="geo_code" required maxlength="8" pattern="[A-Za-z]{2,8}" placeholder="MX" autocomplete="off" />
+    </label>
+    <label>
+      ID оффера Keitaro
+      <input name="offer_id" required type="number" min="1" step="1" placeholder="42" />
+    </label>
+    <button type="submit" id="submit-btn">Создать</button>
+  </form>
+
+  <div id="result" role="status"></div>
+
+  <script>
+    const form = document.getElementById("create-form");
+    const btn = document.getElementById("submit-btn");
+    const out = document.getElementById("result");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      out.className = "";
+      out.style.display = "none";
+      out.textContent = "";
+      btn.disabled = true;
+      btn.textContent = "Создаём…";
+
+      const data = {
+        name: form.name.value.trim(),
+        geo_code: form.geo_code.value.trim(),
+        offer_id: Number(form.offer_id.value),
+      };
+
+      try {
+        const res = await fetch("/api/campaigns", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const body = await res.json().catch(() => ({}));
+        out.style.display = "block";
+        if (res.ok && body.status === "created") {
+          out.className = "ok";
+          out.textContent = "OK — " + (body.message || "создано") +
+            "\nid в трекере: " + body.keitaro_campaign_id +
+            "\nпотоки: " + (body.stream_ids || []).join(", ");
+        } else if (res.ok && body.status === "partial") {
+          out.className = "partial";
+          out.textContent = "Частично — " + (body.message || "") +
+            "\nid в трекере: " + body.keitaro_campaign_id;
+        } else {
+          out.className = "err";
+          out.textContent = "Ошибка " + res.status + " — " +
+            (body.detail || JSON.stringify(body));
+        }
+      } catch (err) {
+        out.style.display = "block";
+        out.className = "err";
+        out.textContent = "Сетевая ошибка: " + err;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Создать";
+      }
+    });
+  </script>
+</body>
+</html>

@@ -195,6 +195,13 @@ class KeitaroClient:
         data = await self._request("POST", "/streams", json=payload)
         return self._as_dict(data)
 
+    async def update_stream(
+        self, stream_id: int, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Обновить поток (PUT /streams/{id}) — например, новый массив offers."""
+        data = await self._request("PUT", f"/streams/{stream_id}", json=payload)
+        return self._as_dict(data)
+
     @staticmethod
     def _as_list(data: Any) -> list[dict[str, Any]]:
         """Список из ответа; не список — ошибка контракта API."""

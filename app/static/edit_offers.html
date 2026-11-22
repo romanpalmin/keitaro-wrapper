@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Редактор офферов — Keitaro wrapper</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 640px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.45;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+    p.hint { opacity: 0.75; font-size: 0.9rem; margin-top: 0; }
+    nav a { font-size: 0.85rem; opacity: 0.7; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; align-items: end; }
+    label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; }
+    input, select {
+      padding: 0.5rem 0.6rem;
+      border: 1px solid #8884;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    button {
+      padding: 0.55rem 0.9rem;
+      border: 0;
+      border-radius: 6px;
+      background: #2563eb;
+      color: #fff;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    button.secondary { background: #64748b; }
+    button.danger { background: #dc2626; }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin-top: 0.5rem;
+    }
+    th, td {
+      border-bottom: 1px solid #8883;
+      padding: 0.55rem 0.4rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { opacity: 0.7; font-weight: 600; }
+    td.share { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+    .meta { font-size: 0.85rem; opacity: 0.75; margin: 0.25rem 0 0; }
+    #msg {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      font-size: 0.9rem;
+      display: none;
+    }
+    #msg.ok { display: block; background: #14532d22; border: 1px solid #16a34a66; }
+    #msg.err { display: block; background: #7f1d1d22; border: 1px solid #dc262666; }
+  </style>
+</head>
+<body>
+  <nav><a href="/">← Создаватор</a> · <a href="/docs">Swagger</a></nav>
+  <h1>Редактор офферов</h1>
+  <p class="hint">
+    Кампания → поток с офферами: add / remove, share пересчитываются сразу в трекере
+    (упрощение относительно видео — см. README).
+  </p>
+
+  <div class="row">
+    <label>
+      ID кампании в Keitaro
+      <input id="cid" type="number" min="1" step="1" placeholder="100" />
+    </label>
+    <button type="button" id="load-btn">Загрузить</button>
+  </div>
+
+  <div id="state-meta" class="meta" hidden></div>
+
+  <table id="offers-table" hidden>
+    <thead>
+      <tr>
+        <th>Share</th>
+        <th>Offer ID</th>
+        <th>State</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="offers-body"></tbody>
+  </table>
+
+  <div class="row" id="add-row" hidden>
+    <label>
+      Добавить оффер (автокомплит)
+      <input id="offer-id" list="offers-list" type="text" inputmode="numeric"
+             autocomplete="off" placeholder="id из справочника" />
+      <datalist id="offers-list"></datalist>
+    </label>
+    <button type="button" id="add-btn" class="secondary">ADD</button>
+  </div>
+
+  <div id="msg" role="status"></div>
+
+  <script>
+    const cid = document.getElementById("cid");
+    const loadBtn = document.getElementById("load-btn");
+    const addBtn = document.getElementById("add-btn");
+    const offerId = document.getElementById("offer-id");
+    const table = document.getElementById("offers-table");
+    const tbody = document.getElementById("offers-body");
+    const meta = document.getElementById("state-meta");
+    const addRow = document.getElementById("add-row");
+    const msg = document.getElementById("msg");
+    const datalist = document.getElementById("offers-list");
+
+    let catalogLoaded = false;
+
+    function showMsg(text, ok) {
+      msg.style.display = "block";
+      msg.className = ok ? "ok" : "err";
+      msg.textContent = text;
+    }
+
+    async function api(path, opts) {
+      const res = await fetch(path, opts);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = typeof body.detail === "string"
+          ? body.detail
+          : JSON.stringify(body);
+        throw new Error("HTTP " + res.status + " — " + detail);
+      }
+      return body;
+    }
+
+    async function loadCatalog() {
+      if (catalogLoaded) return;
+      const items = await api("/api/offers");
+      datalist.innerHTML = "";
+      for (const o of items) {
+        const opt = document.createElement("option");
+        opt.value = String(o.id);
+        opt.label = o.name || "";
+        datalist.appendChild(opt);
+      }
+      catalogLoaded = true;
+    }
+
+    function renderState(state) {
+      meta.hidden = false;
+      meta.textContent =
+        "Поток #" + state.stream_id +
+        (state.stream_name ? " · " + state.stream_name : "") +
+        " · активных: " + state.active_count +
+        " · sum(share): " + state.share_sum + "%";
+      table.hidden = false;
+      addRow.hidden = false;
+      tbody.innerHTML = "";
+      for (const o of state.offers) {
+        const tr = document.createElement("tr");
+        const tdShare = document.createElement("td");
+        tdShare.className = "share";
+        tdShare.textContent = o.share + "%";
+        const tdId = document.createElement("td");
+        tdId.textContent = String(o.offer_id);
+        const tdState = document.createElement("td");
+        tdState.textContent = o.state;
+        const tdAct = document.createElement("td");
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "danger";
+        del.textContent = "REMOVE";
+        del.addEventListener("click", async () => {
+          del.disabled = true;
+          await removeOffer(o.offer_id);
+          // reload перерисует таблицу; при ошибке кнопку вернём
+          if (!tbody.contains(del)) return;
+          del.disabled = false;
+        });
+        tdAct.appendChild(del);
+        tr.append(tdShare, tdId, tdState, tdAct);
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function reload() {
+      const id = Number(cid.value);
+      if (!id) {
+        showMsg("Укажи ID кампании", false);
+        return;
+      }
+      loadBtn.disabled = true;
+      try {
+        await loadCatalog();
+        const state = await api("/api/campaigns/" + id + "/offers");
+        renderState(state);
+        msg.style.display = "none";
+      } catch (e) {
+        showMsg(String(e.message || e), false);
+      } finally {
+        loadBtn.disabled = false;
+      }
+    }
+
+    async function addOffer() {
+      const id = Number(cid.value);
+      const oid = Number(offerId.value);
+      if (!id || !oid) {
+        showMsg("Нужны ID кампании и ID оффера", false);
+        return;
+      }
+      addBtn.disabled = true;
+      try {
+        const after = await api("/api/campaigns/" + id + "/offers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offer_id: oid }),
+        });
+        showMsg(after.message || "OK", true);
+        offerId.value = "";
+        await reload();
+      } catch (e) {
+        showMsg(String(e.message || e), false);
+      } finally {
+        addBtn.disabled = false;
+      }
+    }
+
+    async function removeOffer(oid) {
+      const id = Number(cid.value);
+      if (!id) return;
+      try {
+        const after = await api(
+          "/api/campaigns/" + id + "/offers/" + oid,
+          { method: "DELETE" }
+        );
+        showMsg(after.message || "OK", true);
+        await reload();
+      } catch (e) {
+        showMsg(String(e.message || e), false);
+      }
+    }
+
+    loadBtn.addEventListener("click", reload);
+    addBtn.addEventListener("click", addOffer);
+    cid.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") reload();
+    });
+  </script>
+</body>
+</html>

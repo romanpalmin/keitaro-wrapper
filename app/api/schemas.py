@@ -30,3 +30,36 @@ class CampaignCreateOut(BaseModel):
     stream_ids: list[int] = Field(default_factory=list)
     message: str = ""
     record_id: int | None = None
+
+
+class OfferRowOut(BaseModel):
+    """Оффер в потоке кампании."""
+
+    offer_id: int
+    share: int
+    state: str = "active"
+
+
+class EditorStateOut(BaseModel):
+    """Срез редактора: поток с офферами."""
+
+    campaign_id: int
+    stream_id: int
+    stream_name: str
+    offers: list[OfferRowOut] = Field(default_factory=list)
+    active_count: int = 0
+    share_sum: int = 0
+
+
+class OfferAddIn(BaseModel):
+    """Тело POST: добавить оффер в поток."""
+
+    offer_id: int = Field(gt=0, description="ID оффера в Keitaro")
+
+
+class OffersAfterOut(BaseModel):
+    """Массив offers после add/remove (share пересчитаны, сумма 100)."""
+
+    offers: list[OfferRowOut] = Field(default_factory=list)
+    stream_id: int
+    message: str = ""

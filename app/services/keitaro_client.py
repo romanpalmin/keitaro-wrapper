@@ -171,16 +171,6 @@ class KeitaroClient:
         data = await self._request("GET", "/traffic_sources")
         return self._as_list(data)
 
-    async def list_stream_actions(self) -> list[dict[str, Any]]:
-        """Доступные action_type для потоков (GET /streams_actions)."""
-        data = await self._request("GET", "/streams_actions")
-        return self._as_list(data)
-
-    async def list_stream_filters(self) -> list[dict[str, Any]]:
-        """Доступные фильтры потоков — имя geo-фильтра берём отсюда (GET /stream_filters)."""
-        data = await self._request("GET", "/stream_filters")
-        return self._as_list(data)
-
     async def create_campaign(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Создать кампанию (POST /campaigns). Обязательно name + alias."""
         data = await self._request("POST", "/campaigns", json=payload)
@@ -191,7 +181,7 @@ class KeitaroClient:
         return await self._request("DELETE", f"/campaigns/{campaign_id}")
 
     async def create_stream(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Создать поток (POST /streams): campaign_id, schema, type, name, action_type."""
+        """Создать поток (POST /streams): обязательны campaign_id и name (контракт стенда)."""
         data = await self._request("POST", "/streams", json=payload)
         return self._as_dict(data)
 

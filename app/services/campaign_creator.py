@@ -4,7 +4,7 @@
 1. Справочники: первый домен, группа (campaigns), источник трафика.
 2. Проверка, что offer_id есть в трекере — иначе 404 без создания.
 3. POST /campaigns (префикс test_palmin_) → сразу CampaignRecord status=partial.
-4. Поток 1: forced, фильтр accept на geo → redirect на Google.
+4. Поток 1: regular, фильтр accept на geo → redirect на Google.
 5. Поток 2: default → оффер share 100.
 6. Сбой на потоках → DELETE кампании (откат); ушёл — failed, нет — partial.
 
@@ -13,8 +13,6 @@
   через GET /campaigns и пытаемся удалить; если поиск тоже упал — в трекере
   может остаться мусор без записи в БД.
 - Повторный одинаковый name → alias занят → трекер 400 (без авто-переименования).
-- Константы потоков (action_type/schema/filter name) — до живого probe
-  GET /streams_actions + /stream_filters.
 """
 
 from __future__ import annotations
@@ -31,14 +29,21 @@ from app.services.keitaro_client import KeitaroApiError, KeitaroClient
 # Все кампании, созданные обёрткой, — с префиксом (правило тестового)
 NAME_PREFIX = "test_palmin_"
 
-# Константы контракта трекера — сверить живым probe (GET /streams_actions, /stream_filters),
-# когда доступ к админке вернётся; правка в одном месте.
-GEO_FILTER_NAME = "country"
-REDIRECT_ACTION_TYPE = "http"
-OFFER_ACTION_TYPE = "offer"
-REDIRECT_SCHEMA = "redirect"
-OFFER_SCHEMA = "action"
-GOOGLE_URL = "https://www.google.com"
+# Константы контракта потоков — из документации стенда (раздел «Что поддержано»,
+# примеры curl «поток страна → Google» и «поток с офферами»). Справочников
+# /streams_actions, /stream_filters, /stream_types, /stream_schemas на стенде
+# нет (раздел «Чего нет»), поэтому значения зашиты здесь, а не читаются из API.
+GEO_FILTER_NAME = "country"      # имя geo-фильтра из примера стенда
+GEO_STREAM_TYPE = "regular"      # «страна → Google»: type=regular
+REDIRECT_ACTION_TYPE = "http"    # action_type редиректа из примера стенда
+REDIRECT_SCHEMA = "redirect"     # schema редиректа из примера стенда
+OFFER_STREAM_TYPE = "default"    # поток с офферами: type=default
+OFFER_SCHEMA = "landings"        # schema потока с офферами из примера стенда
+# action_type потока с офферами: в публичном OpenAPI поле обязательное
+# (StreamRequest.required), хотя в примере стенда его нет. Живой тест на стенде
+# (кампания 138): и "http", и "offer" → 200; UI стенда для schema=landings шлёт "http".
+OFFER_ACTION_TYPE = "http"
+GOOGLE_URL = "https://www.google.com"  # action_payload редиректа
 
 
 class CampaignCreatorError(Exception):
@@ -226,15 +231,17 @@ async def create_campaign_with_streams(
         record_id=record.id,
     )
 
-    # 4–5) Два потока
+    # 4–5) Два потока. Geo-поток — дословно по примеру документации стенда;
+    # у потока с офферами action_type добавлен не по примеру, а по обязательному
+    # полю публичного OpenAPI (StreamRequest.required) — см. OFFER_ACTION_TYPE.
     geo_stream_payload = {
         "campaign_id": keitaro_id,
-        "type": "forced",
+        "type": GEO_STREAM_TYPE,
         "name": f"geo_{geo}_to_google",
         "position": 1,
         "schema": REDIRECT_SCHEMA,
         "action_type": REDIRECT_ACTION_TYPE,
-        "action_options": {"url": GOOGLE_URL},
+        "action_payload": GOOGLE_URL,
         "state": "active",
         "filters": [
             {
@@ -246,7 +253,7 @@ async def create_campaign_with_streams(
     }
     offer_stream_payload = {
         "campaign_id": keitaro_id,
-        "type": "default",
+        "type": OFFER_STREAM_TYPE,
         "name": "default_to_offer",
         "position": 2,
         "schema": OFFER_SCHEMA,

@@ -120,6 +120,15 @@ def test_pick_offer_stream_fallback_action_schema() -> None:
     assert pick_offer_stream(streams)["id"] == 2
 
 
+def test_pick_offer_stream_fallback_landings_schema() -> None:
+    """Контракт стенда: поток с офферами — schema=landings, offers может быть пуст."""
+    streams = [
+        {"id": 1, "type": "regular", "schema": "redirect"},
+        {"id": 2, "type": "default", "schema": "landings"},
+    ]
+    assert pick_offer_stream(streams)["id"] == 2
+
+
 def _editor_routes() -> RecordingHandler:
     h = RecordingHandler()
     h.route("GET", "/campaigns/100", {"id": 100, "name": "c"})

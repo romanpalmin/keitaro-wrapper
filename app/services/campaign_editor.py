@@ -118,18 +118,20 @@ def _row_from_raw(o: dict[str, Any]) -> OfferRow | None:
 
 
 def pick_offer_stream(streams: list[dict[str, Any]]) -> dict[str, Any]:
-    """Поток, в котором живут офферы: непустой offers → schema action → default."""
+    """Поток, в котором живут офферы: непустой offers → schema landings/action → default."""
     with_offers = [s for s in streams if s.get("offers")]
     if with_offers:
         return with_offers[0]
-    by_schema = [s for s in streams if s.get("schema") == "action"]
+    # landings — контракт стенда; action — схема настоящего Keitaro (наш прежний вариант)
+    by_schema = [s for s in streams if s.get("schema") in ("landings", "action")]
     if by_schema:
         return by_schema[0]
     by_type = [s for s in streams if s.get("type") == "default"]
     if by_type:
         return by_type[0]
     raise CampaignEditorError(
-        "В кампании нет потока под офферы (ни offers, ни schema=action, ни default).",
+        "В кампании нет потока под офферы "
+        "(ни offers, ни schema=landings/action, ни default).",
         status_code=404,
     )
 

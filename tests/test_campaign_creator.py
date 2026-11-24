@@ -64,10 +64,10 @@ def test_full_success_sends_expected_bodies(isolated_db) -> None:
     assert posts[1]["path"].endswith("/streams")
     geo_stream = posts[1]["body"]
     assert geo_stream["campaign_id"] == 100
-    assert geo_stream["type"] == "forced"
+    assert geo_stream["type"] == "regular"
     assert geo_stream["schema"] == "redirect"
     assert geo_stream["action_type"] == "http"
-    assert geo_stream["action_options"] == {"url": "https://www.google.com"}
+    assert geo_stream["action_payload"] == "https://www.google.com"
     assert geo_stream["filters"] == [
         {"name": "country", "mode": "accept", "payload": ["MX"]}
     ]
@@ -75,6 +75,8 @@ def test_full_success_sends_expected_bodies(isolated_db) -> None:
     assert posts[2]["path"].endswith("/streams")
     offer_stream = posts[2]["body"]
     assert offer_stream["type"] == "default"
+    assert offer_stream["schema"] == "landings"
+    assert offer_stream["action_type"] == "http"  # required в публичном OpenAPI
     assert offer_stream["offers"] == [
         {"offer_id": 42, "share": 100, "state": "active"}
     ]
